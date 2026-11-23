@@ -1,0 +1,29 @@
+# Passwords and cluster details
+# These state files hold the test cluster credentials (EA, MinIO and the
+# cbasLoad source cluster), so they should never be committed.
+.ea_repro_state.json
+.cbasload_state.json
+docker-compose.generated.yml
+.env
+*.env
+
+# Customer logs and support bundles
+cbasSupportability/
+*.log
+*.log.*
+ea-repro-bundle-*.zip
+
+# Generated output
+cbasLoad/runs/
+EA_repro/dist/
+EA_repro/build/
+*.spec.bak
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS and Office lock files
+.DS_Store
+~$*
+*.xlsx

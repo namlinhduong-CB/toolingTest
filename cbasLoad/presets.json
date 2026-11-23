@@ -1,0 +1,254 @@
+{
+  "smoke": {
+    "command": "mixed",
+    "description": "60s check that everything works, with 4 query workers and 500 KV ops/s",
+    "args": [
+      "--collection",
+      "cbasingest",
+      "--duration",
+      "60s",
+      "--concurrency",
+      "4",
+      "--rate",
+      "500",
+      "--seed-docs",
+      "10000",
+      "--drain",
+      "60s"
+    ]
+  },
+  "query-ramp": {
+    "command": "query-load",
+    "description": "ramps from 1 to 32 query workers over 5 minutes, to find where latency starts to climb",
+    "args": [
+      "--collection",
+      "cbasload",
+      "--concurrency",
+      "32",
+      "--profile",
+      "ramp",
+      "--duration",
+      "5m"
+    ]
+  },
+  "query-spike": {
+    "command": "query-load",
+    "description": "20 q/s baseline with 10s spikes to 100 q/s every minute",
+    "args": [
+      "--collection",
+      "cbasload",
+      "--qps",
+      "100",
+      "--profile",
+      "spike",
+      "--spike-base",
+      "0.2",
+      "--spike-every",
+      "60s",
+      "--spike-len",
+      "10s",
+      "--duration",
+      "5m",
+      "--max-inflight",
+      "256"
+    ]
+  },
+  "cancel-storm": {
+    "command": "query-load",
+    "description": "cancels 30% of queries mid-flight, then runs every query again to check if a collection has been left broken",
+    "supp": [
+      "SUPP-121 / MB-67050",
+      "SUPP-129 / MB-62713"
+    ],
+    "args": [
+      "--collection",
+      "cbasload",
+      "--concurrency",
+      "16",
+      "--cancel-pct",
+      "30",
+      "--cancel-after",
+      "0.05-1.5s",
+      "--weight",
+      "heavy_scan=15",
+      "--weight",
+      "topn_customers=15",
+      "--duration",
+      "5m",
+      "--post-check",
+      "3"
+    ],
+    "notes": "Look for post-check failures, and pinCount or unavailable collection errors in analytics_error.log afterwards."
+  },
+  "kv-outage": {
+    "command": "mixed",
+    "description": "queries and ingestion whilst the source KV is frozen for 2 minutes",
+    "supp": [
+      "SUPP-42 / MB-61581"
+    ],
+    "args": [
+      "--collection",
+      "cbasingest",
+      "--duration",
+      "5m",
+      "--concurrency",
+      "8",
+      "--rate",
+      "1500",
+      "--chaos",
+      "60s:pause-source",
+      "--chaos",
+      "180s:unpause-source"
+    ],
+    "notes": "Check that Analytics queries keep working (they should), and how long the ingestion lag takes to recover."
+  },
+  "rollback": {
+    "command": "ingest-load",
+    "description": "high write rate, then kills the source twice so unpersisted mutations are lost (DCP rollback)",
+    "supp": [
+      "SUPP-83 / MB-62633",
+      "SUPP-86 / MB-67367"
+    ],
+    "args": [
+      "--collection",
+      "cbasingest",
+      "--rate",
+      "5000",
+      "--writers",
+      "16",
+      "--ops",
+      "upsert=80,insert=20",
+      "--duration",
+      "5m",
+      "--chaos",
+      "60s:kill-source",
+      "--chaos",
+      "75s:start-source",
+      "--chaos",
+      "150s:kill-source",
+      "--chaos",
+      "165s:start-source"
+    ],
+    "notes": "Check analytics_info.log for rollback messages, and that the lag and gap go back to around 0 after each restart."
+  },
+  "relink-recreate": {
+    "command": "ingest-load",
+    "description": "drops and recreates the source bucket during ingestion",
+    "supp": [
+      "SUPP-33 / MB-63876"
+    ],
+    "args": [
+      "--collection",
+      "cbasingest",
+      "--rate",
+      "1000",
+      "--duration",
+      "4m",
+      "--chaos",
+      "60s:recreate-source-bucket"
+    ],
+    "notes": "The writers get errors whilst the bucket is gone. Afterwards the analytics collection should sync up with the contents of the new bucket."
+  },
+  "compressed-dcp": {
+    "command": "ingest-load",
+    "description": "source bucket with active compression, and large compressible docs at a high write rate",
+    "supp": [
+      "SUPP-30 / MB-64441"
+    ],
+    "args": [
+      "--collection",
+      "cbascompress",
+      "--source-compression",
+      "active",
+      "--doc-size",
+      "16KB-64KB",
+      "--pad",
+      "compressible",
+      "--rate",
+      "3000",
+      "--writers",
+      "16",
+      "--ops",
+      "upsert=90,insert=10",
+      "--duration",
+      "10m"
+    ],
+    "notes": "Compare the CBAS heap and node memory in the report with the KV DCP ready queue stats on the source. Needs a new collection name, so that the bucket is created with active compression."
+  },
+  "merge-pressure": {
+    "command": "ingest-load",
+    "description": "constant heavy upserts over a small keyspace, to cause columnar merges on object storage",
+    "supp": [
+      "SUPP-170 / MB-72604"
+    ],
+    "args": [
+      "--collection",
+      "cbasmerge",
+      "--doc-size",
+      "4KB-32KB",
+      "--seed-docs",
+      "200000",
+      "--rate",
+      "0",
+      "--writers",
+      "24",
+      "--ops",
+      "upsert=100",
+      "--key-skew",
+      "0.8",
+      "--duration",
+      "20m"
+    ],
+    "notes": "EA only. Look out for node restarts or recovery in the events and the server health metrics."
+  },
+  "schema-drift": {
+    "command": "mixed",
+    "description": "10% of ingested docs change shape (missing, extra or retyped fields) under query load",
+    "args": [
+      "--collection",
+      "cbasdrift",
+      "--drift",
+      "0.10",
+      "--template",
+      "nested",
+      "--duration",
+      "5m",
+      "--rate",
+      "1000",
+      "--concurrency",
+      "8"
+    ]
+  },
+  "rebalance-under-load": {
+    "command": "mixed",
+    "description": "rebalances the EA cluster whilst queries and ingestion run. Add a node first, e.g. ea_repro.py up --nodes 2, as a rebalance with no change in nodes moves very little",
+    "args": [
+      "--collection",
+      "cbasingest",
+      "--duration",
+      "6m",
+      "--rate",
+      "1500",
+      "--concurrency",
+      "8",
+      "--chaos",
+      "60s:rebalance"
+    ]
+  },
+  "node-restart": {
+    "command": "mixed",
+    "description": "restarts an EA node during the run, to see how queries and ingestion recover",
+    "args": [
+      "--collection",
+      "cbasingest",
+      "--duration",
+      "5m",
+      "--rate",
+      "1500",
+      "--concurrency",
+      "8",
+      "--chaos",
+      "90s:restart-node:ea-node1"
+    ]
+  }
+}
